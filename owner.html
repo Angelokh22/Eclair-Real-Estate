@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Éclair Real Estate | Owner Panel</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="firebase-config.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h2>Owner Dashboard</h2>
+        
+        <div class="card">
+            <h3 id="gameStatus">Game Status: ...</h3>
+            <button class="btn-success" onclick="toggleGame(true)">Start Game</button>
+            <button class="btn-danger" onclick="toggleGame(false)">Stop Game</button>
+        </div>
+
+        <div class="card">
+            <h3>Manage Player Money</h3>
+            <div id="reader" style="display:none;"></div>
+            <button class="btn-primary" onclick="startScanner()">Scan Player QR</button>
+            <div id="actionPanel" class="hidden">
+                <p>Selected: <span id="selectedPlayer"></span></p>
+                <input type="number" id="amount" placeholder="Amount">
+                <button class="btn-success" onclick="modifyMoney('add')">Add Money</button>
+                <button class="btn-danger" onclick="modifyMoney('remove')">Remove Money</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Leaderboard (Total Value)</h3>
+            <div id="leaderboardList"></div>
+        </div>
+    </div>
+
+    <script>
+        const db = initApp();
+        let html5QrcodeScanner;
+
+        // 1. Game Status
+        db.ref('system/isGameRunning').on('value', snap => {
+            const isRunning = snap.val();
+            document.getElementById('gameStatus').innerText = isRunning ? "Game is LIVE" : "Game STOPPED";
+            document.getElementById('gameStatus').className = isRunning ? "text-green" : "text-red";
+        });
+
+        function toggleGame(status) {
+            db.ref('system/isGameRunning').set(status);
+            // If stopping, calculate winners logic here (optional, or manual check leaderboard)
+        }
+
+        // 2. Leaderboard
+        db.ref('users').orderByChild('propertyValue').on('value', snap => {
+            const list = document.getElementById('leaderboardList');
+            list.innerHTML = '';
+            let players = [];
+            snap.forEach(child => { players.push(child.val()) });
+            
+            // Sort Descending by (Cash + PropertyVal)
+            players.sort((a,b) => (b.cash + b.propertyValue) - (a.cash + a.propertyValue));
+
+            players.forEach((p, index) => {
+                list.innerHTML += `
+                    <div style="display:flex; justify-content:space-between; border-bottom:1px solid #eee; padding:5px;">
+                        <span>#${index+1} ${p.name}</span>
+                        <span>$${(p.cash + p.propertyValue).toLocaleString()}</span>
+                    </div>`;
+            });
+        });
+
+        // 3. Scanner Logic
+        function startScanner() {
+            document.getElementById('reader').style.display = "block";
+            html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+            html5QrcodeScanner.render(onScanSuccess);
+        }
+
+        function onScanSuccess(decodedText) {
+            // Decoded text should be the Player ID
+            document.getElementById('selectedPlayer').innerText = decodedText;
+            document.getElementById('actionPanel').classList.remove('hidden');
+            html5QrcodeScanner.clear();
+            document.getElementById('reader').style.display = "none";
+        }
+
+        function modifyMoney(action) {
+            const pid = document.getElementById('selectedPlayer').innerText;
+            const amount = parseInt(document.getElementById('amount').value);
+            if(!pid || !amount) return;
+
+            db.ref('users/' + pid).once('value', snap => {
+                const current = snap.val().cash || 0;
+                let newAmount = action === 'add' ? current + amount : current - amount;
+                db.ref('users/' + pid).update({ cash: newAmount });
+                alert(`Updated! New Balance: ${newAmount}`);
+                document.getElementById('actionPanel').classList.add('hidden');
+                document.getElementById('amount').value = '';
+            });
+        }
+    </script>
+</body>
+</html>

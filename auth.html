@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Éclair Real Estate | Authentication</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/gh/emn178/js-md5/build/md5.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="firebase-config.js"></script>
+</head>
+<body>
+
+    <script>
+        
+        const db = initApp();
+
+        const userId = sessionStorage.getItem("userId")
+        if (userId) {
+            
+            db.ref("users/" + userId).once("value", (account) => {
+            
+                if (!account.exists()) windows.location.href = "./logout.html"
+                
+                const accountData = account.val();
+                const storedRole = accountData.role;
+
+                switch (storedRole) {
+                    case "player":
+                        window.location.href = "./player.html"
+
+                    case "operator":
+                        window.location.href = "./operator.html"
+                    
+                    case "owner":
+                        window.location.href = "./owner.html"
+                }
+            
+            })
+        }
+    </script>
+
+    <div class="container" style="text-align: center;">
+        <h1>Welcome to Éclair Real Estate</h1>
+        <div class="card">
+            <h3 id="auth-used" auth="signup">Sign Up</h3>
+            <input type="text" id="username" placeholder="Full Name">
+            <input type="email" id="email" placeholder="Email">
+            <input type="password" id="password" placeholder="Password">
+
+            <button class="btn-primary" onclick="handleAuthAction()">Enter Game</button>
+            <a class="nav-item" style="text-decoration: none; font-size: 1rem;" href="#" onclick="switchAuth()" id="auth-action">Login In</a>
+        </div>
+    </div>
+
+    <script>
+
+        function switchAuth() {
+
+            var auth = document.getElementById("auth-used")
+            var currentAuth = auth.getAttribute("auth")
+            if (currentAuth == "signup") {
+                document.getElementById("username").hidden = true
+                auth.innerText = "Log In"
+                auth.setAttribute("auth", "login")
+                document.getElementById("auth-action").innerText = "Sign Up"
+            }
+            else {
+                document.getElementById("username").hidden = false
+                auth.innerText = "Sign Up"
+                auth.setAttribute("auth", "signup")
+                document.getElementById("auth-action").innerText = "login"
+            }
+
+        }
+
+        function handleAuthAction() {
+            const user = document.getElementById('username').value.trim();
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('password').value;
+            
+            const emailHash = md5(email)
+
+            if (document.getElementById("auth-used").getAttribute("auth") == "signup"){
+
+                if(!user || !email || !pass) return alert("Fill all the required fields!");
+                
+                db.ref("users/" + emailHash).once('value', (account) => {
+                    if (!account.exists()) {
+                        db.ref('users/' + emailHash).set({
+                            id: emailHash,
+                            name: user,
+                            email: email,
+                            password: pass,
+                            cash: 0,
+                            propertyValue: 0,
+                            isPlaying: false,
+                            properties: {},
+                            role: "player"
+                        });
+                        sessionStorage.setItem("userId", emailHash)
+                        sessionStorage.setItem("username", user)
+                        
+                        window.location.href = "./player.html"
+                    }
+                    else return alert("User already created")
+                });
+            }
+            else {
+
+                if (!email || !pass) return alert("Fill all the required fields!");
+
+                db.ref("users/" + emailHash).once("value", (account) => {
+                    if (!account.exists()) return alert("Wrong credentials!")
+
+                    const accountData = account.val();
+                    const storedName = accountData.name;
+                    const storedEmail = accountData.email;
+                    const storedPass = accountData.password;
+                    const storedRole = accountData.role;
+
+                    if (email == storedEmail && pass == storedPass) {
+                        sessionStorage.setItem("userId", emailHash)
+                        sessionStorage.setItem("username", storedName)
+                        
+                        switch (storedRole) {
+                            case "player":
+                                return window.location.href = "./player.html"
+
+                            case "operator":
+                                return window.location.href = "./operator.html"
+                            
+                            case "owner":
+                                return window.location.href = "./owner.html"
+                        }
+                    }
+                    else return alert("Wrong credentials!")
+
+                })
+
+            }
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Éclair Real Estate</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="firebase-config.js"></script>
+</head>
+
+<body>
+    <script>
+        const db = initApp();
+        const userId = sessionStorage.getItem("userId");
+        if (userId) {
+            db.ref("users/" + userId).once("value", (account) => {
+                if (!account.exists()) windows.location.href = "./logout.html";
+                const accountData = account.val();
+                const storedRole = accountData.role;
+                switch (storedRole) {
+                    case "player":
+                        return (window.location.href = "./player.html");
+
+                    case "operator":
+                        return (window.location.href = "./operator.html");
+
+                    case "owner":
+                        return (window.location.href = "./owner.html");
+
+                    default:
+                        return (window.location.href = "./auth.html");
+                }
+            });
+        }
+        else window.location.href = "./auth.html"
+    </script>
+</body>
+
+</html>

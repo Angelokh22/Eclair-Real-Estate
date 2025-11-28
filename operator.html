@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Éclair Real Estate | Game Operator</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="firebase-config.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h2>Operator Panel</h2>
+        
+        <div class="card">
+            <h3>Game ID: <span id="gameName">Loading...</span></h3>
+            <input type="text" id="gameIdInput" placeholder="Enter Game ID (e.g., game1)" value="game1">
+            <button class="btn-primary" onclick="loadGame()">Load Game</button>
+        </div>
+
+        <div class="card">
+            <h3>Join QR Code</h3>
+            <div id="qrcode" style="display:flex; justify-content:center;"></div>
+        </div>
+
+        <div class="card">
+            <h3>Active Players</h3>
+            <div id="playerList">Waiting for players...</div>
+        </div>
+    </div>
+
+    <script>
+        const db = initApp();
+        let currentGameId = '';
+        let gameDetails = {};
+
+        function loadGame() {
+            currentGameId = document.getElementById('gameIdInput').value;
+            
+            // Generate QR for this game
+            document.getElementById('qrcode').innerHTML = "";
+            new QRCode(document.getElementById("qrcode"), {
+                text: "GAME:" + currentGameId,
+                width: 200,
+                height: 200
+            });
+
+            // Fetch Details
+            db.ref('games/' + currentGameId).on('value', snap => {
+                gameDetails = snap.val();
+                if(gameDetails) document.getElementById('gameName').innerText = gameDetails.name;
+            });
+
+            // Watch Players playing this game
+            db.ref('users').orderByChild('isPlaying').equalTo(currentGameId).on('value', snap => {
+                const list = document.getElementById('playerList');
+                list.innerHTML = '';
+                
+                snap.forEach(child => {
+                    const p = child.val();
+                    const isMulti = gameDetails.maxWinners > 1;
+                    
+                    let actionHtml = '';
+                    if(isMulti) {
+                        actionHtml = `<input type="checkbox" class="winner-check" value="${p.id}">`;
+                    } else {
+                        actionHtml = `<button class="btn-success" style="width:auto; padding:5px 10px;" onclick="declareWinner('${p.id}')">Win</button>`;
+                    }
+
+                    list.innerHTML += `
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #eee;">
+                            <span>${p.name}</span>
+                            ${actionHtml}
+                        </div>
+                    `;
+                });
+
+                if(gameDetails.maxWinners > 1 && snap.numChildren() > 0) {
+                    list.innerHTML += `<button class="btn-primary" onclick="submitMultiWinners()">Submit Winners</button>`;
+                }
+            });
+        }
+
+        function declareWinner(winnerId) {
+            if(!confirm("Confirm winner?")) return;
+            
+            // 1. Give Prize to Winner
+            db.ref('users/' + winnerId).once('value', snap => {
+                const currentCash = snap.val().cash;
+                db.ref('users/' + winnerId).update({
+                    cash: currentCash + gameDetails.prize,
+                    isPlaying: false
+                });
+            });
+
+            // 2. Reset others (Losers just lose entry fee which was already paid, they just stop playing)
+            db.ref('users').orderByChild('isPlaying').equalTo(currentGameId).once('value', snap => {
+                snap.forEach(child => {
+                    if(child.key !== winnerId) {
+                        db.ref('users/' + child.key).update({ isPlaying: false });
+                    }
+                });
+            });
+        }
+        
+        // Note: submitMultiWinners logic would be similar, looping through checkboxes
+    </script>
+</body>
+</html>

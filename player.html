@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Éclair Real Estate | Player Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="firebase-config.js"></script>
+</head>
+<body>
+    <div class="container" style="padding-bottom: 80px;">
+        <div class="card stat-box">
+            <div>💵 $<span id="cashDisplay">0</span></div>
+            <div>🏠 $<span id="assetDisplay">0</span></div>
+        </div>
+
+        <div id="gameStatusLabel" class="card hidden" style="background: #e3f2fd; border: 1px solid #2196f3;">
+            Wait! You are currently playing: <strong id="activeGameName"></strong>
+        </div>
+
+        <div id="section-home" class="page-section">
+            <div class="card">
+                <h3 id="id-code-output"></h3>
+                <div id="my-qrcode" style="display:flex; justify-content:center;"></div>
+            </div>
+            
+            <div class="card">
+                <h3>Scan Game QR</h3>
+                <div id="reader" style="display:none;"></div>
+                <button class="btn-primary" onclick="startGameScanner()">Scan to Join Game</button>
+            </div>
+        </div>
+
+        <div id="section-properties" class="page-section hidden">
+            <h3>Available Properties</h3>
+            <div id="marketList"></div>
+        </div>
+
+        <div id="section-portfolio" class="page-section hidden">
+            <h3>My Properties</h3>
+            <div id="myList"></div>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <div class="nav-item active" onclick="switchTab('home', this)">Home</div>
+        <div class="nav-item" onclick="switchTab('properties', this)">Buy</div>
+        <div class="nav-item" onclick="switchTab('portfolio', this)">Owned</div>
+        <div class="nav-item"><a class="nav-item" style="text-decoration: none;" href="./logout.html">Log Out</a></div>
+    </div>
+
+    <script>
+        const db = initApp();
+        const userId = sessionStorage.getItem('userId');
+        const userName = sessionStorage.getItem('username');
+        let userData = {};
+
+        if(!userId) window.location.href = 'index.html';
+
+        document.getElementById("id-code-output").innerText = "ID Code for: " + userName;
+
+        // 1. Generate My QR
+        new QRCode(document.getElementById("my-qrcode"), {
+            text: userId,
+            width: 150,
+            height: 150
+        });
+
+        // 2. Realtime User Data Sync
+        db.ref('users/' + userId).on('value', snap => {
+            userData = snap.val();
+            document.getElementById('cashDisplay').innerText = userData.cash.toLocaleString();
+            document.getElementById('assetDisplay').innerText = userData.propertyValue.toLocaleString();
+            
+            if(userData.isPlaying) {
+                document.getElementById('gameStatusLabel').classList.remove('hidden');
+                document.getElementById('activeGameName').innerText = userData.isPlaying; 
+            } else {
+                document.getElementById('gameStatusLabel').classList.add('hidden');
+            }
+        });
+
+        // 3. Tab Switching
+        function switchTab(tabName, el) {
+            document.querySelectorAll('.page-section').forEach(d => d.classList.add('hidden'));
+            document.getElementById('section-' + tabName).classList.remove('hidden');
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            el.classList.add('active');
+        }
+
+        // 4. Market Logic (The Growth Algorithm)
+        const growthRates = {
+            'land': 0.10, 'house': 0.25, 'building': 0.60, 
+            'hotel': 0.70, 'supermarket': 0.80, 'hospital': 0.65
+        };
+
+        db.ref('properties').on('value', snap => {
+            const marketDiv = document.getElementById('marketList');
+            const myDiv = document.getElementById('myList');
+            marketDiv.innerHTML = '';
+            myDiv.innerHTML = '';
+            
+            let totalAssetValue = 0;
+
+            snap.forEach(child => {
+                const prop = child.val();
+                const pid = child.key;
+
+                if(prop.owner === userId) {
+                    // It's mine
+                    totalAssetValue += prop.currentPrice;
+                    myDiv.innerHTML += `
+                        <div class="card">
+                            <h4>${prop.name} <small>(${prop.area})</small></h4>
+                            <p>Value: $${Math.floor(prop.currentPrice).toLocaleString()}</p>
+                            <button class="btn-danger" onclick="sellProperty('${pid}', '${prop.area}', ${prop.currentPrice})">Sell</button>
+                        </div>`;
+                } else if (!prop.owner) {
+                    // It's for sale
+                    marketDiv.innerHTML += `
+                        <div class="card">
+                            <h4>${prop.name} <small>(${prop.area})</small></h4>
+                            <p>Price: $${Math.floor(prop.currentPrice).toLocaleString()}</p>
+                            <button class="btn-success" onclick="buyProperty('${pid}', '${prop.area}', '${prop.type}', ${prop.currentPrice})">Buy</button>
+                        </div>`;
+                }
+            });
+
+            // Update user asset total in DB if changed
+            if(userData.propertyValue !== totalAssetValue) {
+                db.ref('users/' + userId).update({ propertyValue: totalAssetValue });
+            }
+        });
+
+        // --- BUY LOGIC ---
+        function buyProperty(pid, area, type, price) {
+            if(userData.cash < price) return alert("Not enough cash!");
+            if(!confirm(`Buy for $${price}?`)) return;
+
+            // 1. Deduct Cash & Set Owner
+            db.ref('users/' + userId).update({ cash: userData.cash - price });
+            db.ref('properties/' + pid).update({ owner: userId });
+
+            // 2. Trigger Area Inflation
+            const rate = growthRates[type] || 0.10;
+            triggerAreaFluctuation(area, rate, true); 
+        }
+
+        // --- SELL LOGIC ---
+        function sellProperty(pid, area, price) {
+            if(!confirm(`Sell for $${price}?`)) return;
+
+            // 1. Add Cash & Remove Owner
+            db.ref('users/' + userId).update({ cash: userData.cash + price });
+            
+            // 2. Trigger Area Deflation (Before resetting price? No, logic says revert to market)
+            // The prompt says: "house will go back to market valued at X because it went down 25%"
+            // So we deflate first, then release the specific property.
+            
+            triggerAreaFluctuation(area, 0.25, false, pid); 
+            // Note: Prompt logic implies sold property returns to market. 
+            // Depending on strict interpretation, the sold property resets base price or keeps inflated price.
+            // I will implement: Release ownership.
+            db.ref('properties/' + pid).update({ owner: "" });
+        }
+
+        function triggerAreaFluctuation(area, percentage, isIncrease, excludePid = null) {
+            db.ref('properties').once('value', snap => {
+                const updates = {};
+                snap.forEach(child => {
+                    const p = child.val();
+                    if(p.area === area) {
+                        let newPrice = p.currentPrice;
+                        if(isIncrease) {
+                            newPrice = p.currentPrice * (1 + percentage);
+                        } else {
+                            newPrice = p.currentPrice * (1 - percentage);
+                        }
+                        updates[child.key + '/currentPrice'] = newPrice;
+                    }
+                });
+                db.ref('properties').update(updates);
+            });
+        }
+
+        // 5. Game Scanner
+        function startGameScanner() {
+            document.getElementById('reader').style.display = "block";
+            const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+            scanner.render((decodedText) => {
+                // Decoded text ex: "GAME:game1"
+                if(decodedText.startsWith("GAME:")) {
+                    const gid = decodedText.split(':')[1];
+                    scanner.clear();
+                    document.getElementById('reader').style.display = "none";
+                    joinGame(gid);
+                }
+            });
+        }
+
+        function joinGame(gid) {
+            db.ref('games/' + gid).once('value', snap => {
+                const game = snap.val();
+                if(userData.cash >= game.entryFee) {
+                    if(confirm(`Join ${game.name} for $${game.entryFee}?`)) {
+                        db.ref('users/' + userId).update({
+                            cash: userData.cash - game.entryFee,
+                            isPlaying: gid
+                        });
+                        alert("Joined!");
+                    }
+                } else {
+                    alert("Not enough money to join.");
+                }
+            });
+        }
+    </script>
+</body>
+</html>
